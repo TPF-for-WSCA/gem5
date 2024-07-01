@@ -59,106 +59,123 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+    namespace branch_prediction
+    {
 
-LTAGE::LTAGE(const LTAGEParams &params)
-  : TAGE(params), loopPredictor(params.loop_predictor)
-{
-}
-
-void
-LTAGE::init()
-{
-    TAGE::init();
-}
-
-//prediction
-bool
-LTAGE::predict(ThreadID tid, Addr branch_pc, bool cond_branch, void* &b)
-{
-    LTageBranchInfo *bi = new LTageBranchInfo(*tage, *loopPredictor);
-    b = (void*)(bi);
-
-    bool pred_taken = tage->tagePredict(tid, branch_pc, cond_branch,
-                                        bi->tageBranchInfo);
-
-    pred_taken = loopPredictor->loopPredict(tid, branch_pc, cond_branch,
-                                            bi->lpBranchInfo, pred_taken,
-                                            instShiftAmt);
-    if (cond_branch) {
-        if (bi->lpBranchInfo->loopPredUsed) {
-            bi->tageBranchInfo->provider = LOOP;
+        LTAGE::LTAGE(const LTAGEParams &params)
+            : TAGE(params), loopPredictor(params.loop_predictor)
+        {
         }
-        DPRINTF(LTage, "Predict for %lx: taken?:%d, loopTaken?:%d, "
-                "loopValid?:%d, loopUseCounter:%d, tagePred:%d, altPred:%d\n",
-                branch_pc, pred_taken, bi->lpBranchInfo->loopPred,
-                bi->lpBranchInfo->loopPredValid,
-                loopPredictor->getLoopUseCounter(),
-                bi->tageBranchInfo->tagePred, bi->tageBranchInfo->altTaken);
-    }
 
-    // record final prediction
-    bi->lpBranchInfo->predTaken = pred_taken;
+        void
+        LTAGE::init()
+        {
+            TAGE::init();
+        }
 
-    return pred_taken;
-}
+        void
+        LTAGE::branchPlaceholder(ThreadID tid, Addr pc,
+                                 bool uncond, void *&bpHistory)
+        {
+            LTageBranchInfo *bi = new LTageBranchInfo(*tage, *loopPredictor,
+                                                      pc, !uncond);
+            bpHistory = (void *)(bi);
+        }
 
-// PREDICTOR UPDATE
-void
-LTAGE::update(ThreadID tid, Addr pc, bool taken, void * &bp_history,
-              bool squashed, const StaticInstPtr & inst, Addr target)
-{
-    assert(bp_history);
+        // prediction
+        bool
+        LTAGE::predict(ThreadID tid, Addr branch_pc, bool cond_branch, void *&b)
+        {
+            LTageBranchInfo *bi = new LTageBranchInfo(*tage, *loopPredictor,
+                                                      branch_pc, cond_branch);
+            b = (void *)(bi);
 
-    LTageBranchInfo* bi = static_cast<LTageBranchInfo*>(bp_history);
+            bool pred_taken = tage->tagePredict(tid, branch_pc, cond_branch,
+                                                bi->tageBranchInfo);
 
-    if (squashed) {
-        if (tage->isSpeculativeUpdateEnabled()) {
-            // This restores the global history, then update it
-            // and recomputes the folded histories.
-            tage->squash(tid, taken, bi->tageBranchInfo, target);
-
-            if (bi->tageBranchInfo->condBranch) {
-                loopPredictor->squashLoop(bi->lpBranchInfo);
+            pred_taken = loopPredictor->loopPredict(tid, branch_pc, cond_branch,
+                                                    bi->lpBranchInfo, pred_taken,
+                                                    instShiftAmt);
+            if (cond_branch)
+            {
+                if (bi->lpBranchInfo->loopPredUsed)
+                {
+                    bi->tageBranchInfo->provider = LOOP;
+                }
+                DPRINTF(LTage, "Predict for %lx: taken?:%d, loopTaken?:%d, "
+                               "loopValid?:%d, loopUseCounter:%d, tagePred:%d, altPred:%d\n",
+                        branch_pc, pred_taken, bi->lpBranchInfo->loopPred,
+                        bi->lpBranchInfo->loopPredValid,
+                        loopPredictor->getLoopUseCounter(),
+                        bi->tageBranchInfo->tagePred, bi->tageBranchInfo->altTaken);
             }
+
+            // record final prediction
+            bi->lpBranchInfo->predTaken = pred_taken;
+
+            return pred_taken;
         }
-        return;
-    }
 
-    int nrand = random_mt.random<int>() & 3;
-    if (bi->tageBranchInfo->condBranch) {
-        DPRINTF(LTage, "Updating tables for branch:%lx; taken?:%d\n",
-                pc, taken);
-        tage->updateStats(taken, bi->tageBranchInfo);
+        // PREDICTOR UPDATE
+        void
+        LTAGE::update(ThreadID tid, Addr branch_pc, bool taken, void *&bpHistory,
+                      bool squashed, const StaticInstPtr &inst, Addr corrTarget)
+        {
+            assert(bpHistory);
 
-        loopPredictor->updateStats(taken, bi->lpBranchInfo);
+            LTageBranchInfo *bi = static_cast<LTageBranchInfo *>(bpHistory);
 
-        loopPredictor->condBranchUpdate(tid, pc, taken,
-            bi->tageBranchInfo->tagePred, bi->lpBranchInfo, instShiftAmt);
+            if (squashed)
+            {
+                if (tage->isSpeculativeUpdateEnabled())
+                {
+                    // This restores the global history, then update it
+                    // and recomputes the folded histories.
+                    tage->squash(tid, taken, bi->tageBranchInfo, target);
 
-        tage->condBranchUpdate(tid, pc, taken, bi->tageBranchInfo,
-            nrand, target, bi->lpBranchInfo->predTaken);
-    }
+                    if (bi->tageBranchInfo->condBranch)
+                    {
+                        loopPredictor->squashLoop(bi->lpBranchInfo);
+                    }
+                }
+                return;
+            }
 
-    tage->updateHistories(tid, pc, taken, bi->tageBranchInfo, false,
-                          inst, target);
+            int nrand = random_mt.random<int>() & 3;
+            if (bi->tageBranchInfo->condBranch)
+            {
+                DPRINTF(LTage, "Updating tables for branch:%lx; taken?:%d\n",
+                        pc, taken);
+                tage->updateStats(taken, bi->tageBranchInfo);
 
-    delete bi;
-    bp_history = nullptr;
-}
+                loopPredictor->updateStats(taken, bi->lpBranchInfo);
 
-void
-LTAGE::squash(ThreadID tid, void * &bp_history)
-{
-    LTageBranchInfo* bi = (LTageBranchInfo*)(bp_history);
+                loopPredictor->condBranchUpdate(tid, pc, taken,
+                                                bi->tageBranchInfo->tagePred, bi->lpBranchInfo, instShiftAmt);
 
-    if (bi->tageBranchInfo->condBranch) {
-        loopPredictor->squash(tid, bi->lpBranchInfo);
-    }
+                tage->condBranchUpdate(tid, pc, taken, bi->tageBranchInfo,
+                                       nrand, target, bi->lpBranchInfo->predTaken);
+            }
 
-    TAGE::squash(tid, bp_history);
-}
+            tage->updateHistories(tid, branch_pc, false, taken, corrTarget,
+                                  bi->tageBranchInfo, inst);
 
-} // namespace branch_prediction
+            delete bi;
+            bpHistory = nullptr;
+        }
+
+        void
+        LTAGE::squash(ThreadID tid, void *&bpHistory)
+        {
+            LTageBranchInfo *bi = (LTageBranchInfo *)(bpHistory);
+
+            if (bi->tageBranchInfo->condBranch)
+            {
+                loopPredictor->squash(tid, bi->lpBranchInfo);
+            }
+
+            TAGE::squash(tid, bpHistory);
+        }
+
+    } // namespace branch_prediction
 } // namespace gem5

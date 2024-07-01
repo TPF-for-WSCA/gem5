@@ -52,74 +52,71 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+     namespace branch_prediction
+     {
 
-class IndirectPredictor : public SimObject
-{
-  public:
+          class IndirectPredictor : public SimObject
+          {
+          public:
+               typedef IndirectPredictorParams Params;
 
-    typedef IndirectPredictorParams Params;
+               IndirectPredictor(const Params &params)
+                   : SimObject(params)
+               {
+               }
 
-    IndirectPredictor(const Params &params)
-        : SimObject(params)
-    {
-    }
+               virtual void reset() {};
 
-    virtual void reset() {};
+               /**
+                * Predicts the indirect target of an indirect branch.
+                * @param tid Thread ID of the branch.
+                * @param sn The sequence number of the branch.
+                * @param PC The branch PC address.
+                * @param iHistory The pointer to the history object.
+                * @return For a hit the predictor returns a pointer to the target PCState
+                *         otherwise a nullptr is returned.
+                */
+               virtual const PCStateBase *lookup(ThreadID tid, InstSeqNum sn,
+                                                 Addr pc, void *&iHistory) = 0;
 
-    /**
-     * Predicts the indirect target of an indirect branch.
-     * @param tid Thread ID of the branch.
-     * @param sn The sequence number of the branch.
-     * @param pc The branch PC address.
-     * @param i_history The pointer to the history object.
-     * @return For a hit the predictor returns a pointer to the target PCState
-     *         otherwise a nullptr is returned.
-     */
-    virtual const PCStateBase* lookup(ThreadID tid, InstSeqNum sn,
-                                      Addr pc, void * &i_history) = 0;
+               /**
+                * Updates the indirect predictor with history information of a branch.
+                * Is called right after the prediction which updates the state
+                * speculatively. In case the branch was mispredicted the function
+                * is called again with the corrected information.
+                * The function is called for ALL branches as some predictors incooperate
+                * all branches in their history.
+                * @param PC The branch PC address.
+                * @param squash Whether the update is called at a misprediction
+                * @param taken Whether a conditional branch was taken
+                * @param target The target address if this branch.
+                * @param brType The branch instruction type.
+                * @param iHistory The pointer to the history object.
+                */
+               virtual void update(ThreadID tid, InstSeqNum sn, Addr pc, bool squash,
+                                   bool taken, const PCStateBase &target,
+                                   BranchType brType, void *&iHistory) = 0;
 
-    /**
-     * Updates the indirect predictor with history information of a branch.
-     * Is called right after the prediction which updates the state
-     * speculatively. In case the branch was mispredicted the function
-     * is called again with the corrected information.
-     * The function is called for ALL branches as some predictors incooperate
-     * all branches in their history.
-     * @param tid Thread ID
-     * @param sn The sequence number of the branch.
-     * @param pc The branch PC address.
-     * @param squash Whether the update is called at a misprediction
-     * @param taken Whether a conditional branch was taken
-     * @param target The target address if this branch.
-     * @param br_type The branch instruction type.
-     * @param i_history The pointer to the history object.
-     */
-    virtual void update(ThreadID tid, InstSeqNum sn, Addr pc, bool squash,
-                        bool taken, const PCStateBase& target,
-                        BranchType br_type, void * &i_history) = 0;
+               /**
+                * Squashes a branch. If the branch modified the history
+                * reverts the modification.
+                * @param tid Thread ID
+                * @param sn The sequence number of the branch.
+                * @param iHistory The pointer to the history object.
+                */
+               virtual void squash(ThreadID tid, InstSeqNum sn, void *&iHistory) = 0;
 
-    /**
-     * Squashes a branch. If the branch modified the history
-     * reverts the modification.
-     * @param tid Thread ID
-     * @param sn The sequence number of the branch.
-     * @param i_history The pointer to the history object.
-     */
-    virtual void squash(ThreadID tid, InstSeqNum sn, void * &i_history) = 0;
+               /**
+                * A branch gets finally commited. Updates the internal state of
+                * the indirect predictor (counter and target information).
+                * @param tid Thread ID
+                * @param sn The sequence number of the branch.
+                * @param iHistory The pointer to the history object.
+                */
+               virtual void commit(ThreadID tid, InstSeqNum sn, void *&iHistory) = 0;
+          };
 
-    /**
-     * A branch gets finally commited. Updates the internal state of
-     * the indirect predictor (counter and target information).
-     * @param tid Thread ID
-     * @param sn The sequence number of the branch.
-     * @param i_history The pointer to the history object.
-     */
-    virtual void commit(ThreadID tid, InstSeqNum sn, void * &i_history) = 0;
-};
-
-} // namespace branch_prediction
+     } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_INDIRECT_BASE_HH__

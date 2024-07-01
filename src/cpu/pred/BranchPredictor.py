@@ -94,6 +94,97 @@ class SimpleBTB(BranchTargetBuffer):
         Parent.instShiftAmt, "Number of bits to shift instructions by"
     )
 
+from m5.objects.ClockedObject import ClockedObject
+from m5.objects.IndexingPolicies import *
+from m5.objects.ReplacementPolicies import *
+
+
+class BranchType(Enum):
+    vals = [
+        "NoBranch",
+        "Return",
+        "CallDirect",
+        "CallIndirect",  # 'Call',
+        "DirectCond",
+        "DirectUncond",  # 'Direct',
+        "IndirectCond",
+        "IndirectUncond",  #'Indirect',
+    ]
+
+
+class TargetProvider(Enum):
+    vals = [
+        "NoTarget",
+        "BTB",
+        "RAS",
+        "Indirect",
+    ]
+
+
+class ReturnAddrStack(SimObject):
+    type = "ReturnAddrStack"
+    cxx_class = "gem5::branch_prediction::ReturnAddrStack"
+    cxx_header = "cpu/pred/ras.hh"
+    # abstract = True
+
+    numThreads = Param.Unsigned(Parent.numThreads, "Number of threads")
+    numEntries = Param.Unsigned(Parent.RASSize, "Number of RAS entries")
+    corruptionDetection = Param.Bool(
+        False,
+        "When corruption detection is "
+        "enabled no entry will returned when "
+        "the stack was corrupted.",
+    )
+
+
+class BranchTargetBuffer(ClockedObject):
+    type = "BranchTargetBuffer"
+    cxx_class = "gem5::branch_prediction::BranchTargetBuffer"
+    cxx_header = "cpu/pred/btb.hh"
+    abstract = True
+
+    numThreads = Param.Unsigned(Parent.numThreads, "Number of threads")
+
+
+class SimpleBTB(BranchTargetBuffer):
+    type = "SimpleBTB"
+    cxx_class = "gem5::branch_prediction::SimpleBTB"
+    cxx_header = "cpu/pred/simple_btb.hh"
+
+    numEntries = Param.Unsigned(4096, "Number of BTB entries")
+    tagBits = Param.Unsigned(16, "Size of the BTB tags, in bits")
+    instShiftAmt = Param.Unsigned(
+        Parent.instShiftAmt, "Number of bits to shift instructions by"
+    )
+
+
+class AssociativeBTB(BranchTargetBuffer):
+    type = "AssociativeBTB"
+    cxx_class = "gem5::branch_prediction::AssociativeBTB"
+    cxx_header = "cpu/pred/associative_btb.hh"
+
+    numEntries = Param.MemorySize("4096", "Number of entries of BTB entries")
+    assoc = Param.Unsigned(8, "Associativity of the BTB")
+    indexing_policy = Param.BaseIndexingPolicy(
+        SetAssociative(
+            entry_size=1, assoc=Parent.assoc, size=Parent.numEntries
+        ),
+        "Indexing policy of the BTB",
+    )
+    replacement_policy = Param.BaseReplacementPolicy(
+        LRURP(), "Replacement policy of the table"
+    )
+
+    tagBits = Param.Unsigned(16, "Size of the BTB tags, in bits")
+    useTagCompression = Param.Bool(
+        False,
+        "Use a tag compression function as"
+        "described in https://ieeexplore.ieee.org/document/9528930",
+    )
+    instShiftAmt = Param.Unsigned(
+        Parent.instShiftAmt, "Number of bits to shift instructions by"
+    )
+
 
 class IndirectPredictor(SimObject):
     type = "IndirectPredictor"
@@ -102,6 +193,12 @@ class IndirectPredictor(SimObject):
     abstract = True
 
     numThreads = Param.Unsigned(Parent.numThreads, "Number of threads")
+    takenOnlyHistory = Param.Bool(
+        Parent.takenOnlyHistory,
+        "Build the global "
+        "history using taken-only branch target history instead of direction "
+        "history from all branches",
+    )
 
 
 class SimpleIndirectPredictor(IndirectPredictor):
@@ -146,14 +243,24 @@ class BranchPredictor(SimObject):
         "Low-end CPUs predecoding might be used to identify branches. ",
     )
 
-    btb = Param.BranchTargetBuffer(SimpleBTB(), "Branch target buffer (BTB)")
-    ras = Param.ReturnAddrStack(
+    RASSize = Param.Unsigned(16, "RAS size")
+
+    BTB = Param.BranchTargetBuffer(SimpleBTB(), "Branch target buffer (BTB)")
+    RAS = Param.ReturnAddrStack(
         ReturnAddrStack(), "Return address stack, set to NULL to disable RAS."
     )
     indirectBranchPred = Param.IndirectPredictor(
         SimpleIndirectPredictor(),
         "Indirect branch predictor, set to NULL to disable "
         "indirect predictions",
+    )
+
+    # Taken only history as used in most modern server CPUs.
+    takenOnlyHistory = Param.Bool(
+        False,
+        "Build the global history only from taken branches (2-bit) "
+        "instead of direction history from all branches. Widely implemented "
+        "in modern server CPUs: https://ieeexplore.ieee.org/document/9246215",
     )
 
 
@@ -242,6 +349,14 @@ class TAGEBase(SimObject):
 
     speculativeHistUpdate = Param.Bool(
         True, "Use speculative update for histories"
+    )
+
+    # Taken only history as used in most modern server CPUs.
+    takenOnlyHistory = Param.Bool(
+        Parent.takenOnlyHistory,
+        "Build the global history only from taken branches (2-bit) "
+        "instead of direction history from all branches. Widely implemented "
+        "in modern server CPUs: https://ieeexplore.ieee.org/document/9246215",
     )
 
 

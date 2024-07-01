@@ -61,7 +61,6 @@
 #ifndef __CPU_PRED_LTAGE_HH__
 #define __CPU_PRED_LTAGE_HH__
 
-
 #include <vector>
 
 #include "base/types.hh"
@@ -72,63 +71,68 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+  namespace branch_prediction
+  {
 
-class LTAGE : public TAGE
-{
-  public:
-    LTAGE(const LTAGEParams &params);
-
-    // Base class methods.
-    void squash(ThreadID tid, void * &bp_history) override;
-    void update(ThreadID tid, Addr pc, bool taken,
-                void * &bp_history, bool squashed,
-                const StaticInstPtr & inst, Addr target) override;
-
-    void init() override;
-
-  protected:
-    /** The loop predictor object */
-    LoopPredictor *loopPredictor;
-
-    // more provider types
-    enum
+    class LTAGE : public TAGE
     {
+    public:
+      LTAGE(const LTAGEParams &params);
+
+      // Base class methods.
+      void squash(ThreadID tid, void *&bpHistory) override;
+      void update(ThreadID tid, Addr branch_addr, bool taken, void *&bpHistory,
+                  bool squashed, const StaticInstPtr &inst,
+                  Addr corrTarget) override;
+      virtual void branchPlaceholder(ThreadID tid, Addr pc,
+                                     bool uncond, void *&bpHistory) override;
+
+      void init() override;
+
+    protected:
+      /** The loop predictor object */
+      LoopPredictor *loopPredictor;
+
+      // more provider types
+      enum
+      {
         LOOP = TAGEBase::LAST_TAGE_PROVIDER_TYPE + 1,
         LAST_LTAGE_PROVIDER_TYPE = LOOP
-    };
+      };
 
-    // Primary branch history entry
-    struct LTageBranchInfo : public TageBranchInfo
-    {
+      // Primary branch history entry
+      struct LTageBranchInfo : public TageBranchInfo
+      {
         LoopPredictor::BranchInfo *lpBranchInfo;
-        LTageBranchInfo(TAGEBase &tage, LoopPredictor &lp)
-          : TageBranchInfo(tage), lpBranchInfo(lp.makeBranchInfo())
-        {}
+        LTageBranchInfo(TAGEBase &tage, LoopPredictor &lp,
+                        Addr pc, bool conditional)
+            : TageBranchInfo(tage, pc, conditional),
+              lpBranchInfo(lp.makeBranchInfo())
+        {
+        }
 
         virtual ~LTageBranchInfo()
         {
-            delete lpBranchInfo;
-            lpBranchInfo = nullptr;
+          delete lpBranchInfo;
+          lpBranchInfo = nullptr;
         }
+      };
+
+      /**
+       * Get a branch prediction from LTAGE. *NOT* an override of
+       * BpredUnit::predict().
+       * @param tid The thread ID to select the global
+       * histories to use.
+       * @param branch_pc The unshifted branch PC.
+       * @param cond_branch True if the branch is conditional.
+       * @param b Reference to wrapping pointer to allow storing
+       * derived class prediction information in the base class.
+       */
+      bool predict(
+          ThreadID tid, Addr branch_pc, bool cond_branch, void *&b) override;
     };
 
-    /**
-     * Get a branch prediction from LTAGE. *NOT* an override of
-     * BpredUnit::predict().
-     * @param tid The thread ID to select the global
-     * histories to use.
-     * @param branch_pc The unshifted branch PC.
-     * @param cond_branch True if the branch is conditional.
-     * @param b Reference to wrapping pointer to allow storing
-     * derived class prediction information in the base class.
-     */
-    bool predict(
-        ThreadID tid, Addr branch_pc, bool cond_branch, void* &b) override;
-};
-
-} // namespace branch_prediction
+  } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_LTAGE_HH__

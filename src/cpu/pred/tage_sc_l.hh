@@ -64,145 +64,155 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+  namespace branch_prediction
+  {
 
-class TAGE_SC_L_TAGE : public TAGEBase
-{
-    const unsigned firstLongTagTable;
-    const unsigned longTagsSize;
-    const unsigned shortTagsSize;
-
-    const unsigned logTagTableSize;
-
-    const unsigned shortTagsTageFactor;
-    const unsigned longTagsTageFactor;
-
-    const bool truncatePathHist;
-
-  public:
-    struct BranchInfo : public TAGEBase::BranchInfo
+    class TAGE_SC_L_TAGE : public TAGEBase
     {
+      const unsigned firstLongTagTable;
+      const unsigned longTagsSize;
+      const unsigned shortTagsSize;
+
+      const unsigned logTagTableSize;
+
+      const unsigned shortTagsTageFactor;
+      const unsigned longTagsTageFactor;
+
+      const bool truncatePathHist;
+
+    public:
+      struct BranchInfo : public TAGEBase::BranchInfo
+      {
         bool lowConf;
         bool highConf;
         bool altConf;
         bool medConf;
-        BranchInfo(TAGEBase &tage) : TAGEBase::BranchInfo(tage),
-            lowConf(false), highConf(false), altConf(false), medConf(false)
-        {}
+        BranchInfo(TAGEBase &tage, Addr pc, bool cond)
+            : TAGEBase::BranchInfo(tage, pc, cond),
+              lowConf(false), highConf(false), altConf(false), medConf(false)
+        {
+        }
         virtual ~BranchInfo()
-        {}
+        {
+        }
+      };
+
+      virtual TAGEBase::BranchInfo *makeBranchInfo(Addr pc, bool cond) override;
+
+      TAGE_SC_L_TAGE(const TAGE_SC_L_TAGEParams &p)
+          : TAGEBase(p),
+            firstLongTagTable(p.firstLongTagTable),
+            longTagsSize(p.longTagsSize),
+            shortTagsSize(p.shortTagsSize),
+            logTagTableSize(p.logTagTableSize),
+            shortTagsTageFactor(p.shortTagsTageFactor),
+            longTagsTageFactor(p.longTagsTageFactor),
+            truncatePathHist(p.truncatePathHist)
+      {
+      }
+
+      void calculateParameters() override;
+
+      void buildTageTables() override;
+
+      void calculateIndicesAndTags(
+          ThreadID tid, Addr branch_pc, TAGEBase::BranchInfo *bi) override;
+
+      unsigned getUseAltIdx(TAGEBase::BranchInfo *bi, Addr branch_pc) override;
+
+      void updateHistories(ThreadID tid, Addr branch_pc, bool speculative,
+                           bool taken, Addr target, TAGEBase::BranchInfo *bi,
+                           const StaticInstPtr &inst) override;
+
+      int bindex(Addr pc_in) const override;
+      int gindex(ThreadID tid, Addr pc, int bank) const override;
+      virtual int gindex_ext(int index, int bank) const = 0;
+      int F(int phist, int size, int bank) const override;
+
+      virtual uint16_t gtag(ThreadID tid, Addr pc, int bank) const override = 0;
+
+      void squash(ThreadID tid, bool taken, TAGEBase::BranchInfo *bi,
+                  Addr target) override;
+
+      void updatePathAndGlobalHistory(
+          ThreadID tid, int brtype, bool taken,
+          Addr branch_pc, Addr target);
+
+      void adjustAlloc(bool &alloc, bool taken, bool pred_taken) override;
+
+      virtual void handleAllocAndUReset(bool alloc, bool taken,
+                                        TAGEBase::BranchInfo *bi, int nrand) override = 0;
+
+      void handleUReset() override;
+
+      virtual void handleTAGEUpdate(
+          Addr branch_pc, bool taken, TAGEBase::BranchInfo *bi) override = 0;
+
+      int calcDep(TAGEBase::BranchInfo *bi);
+
+      bool getBimodePred(Addr branch_pc,
+                         TAGEBase::BranchInfo *tage_bi) const override;
+
+      void extraAltCalc(TAGEBase::BranchInfo *bi) override;
     };
 
-    virtual TAGEBase::BranchInfo *makeBranchInfo() override;
-
-    TAGE_SC_L_TAGE(const TAGE_SC_L_TAGEParams &p)
-      : TAGEBase(p),
-        firstLongTagTable(p.firstLongTagTable),
-        longTagsSize(p.longTagsSize),
-        shortTagsSize(p.shortTagsSize),
-        logTagTableSize(p.logTagTableSize),
-        shortTagsTageFactor(p.shortTagsTageFactor),
-        longTagsTageFactor(p.longTagsTageFactor),
-        truncatePathHist(p.truncatePathHist)
-    {}
-
-    void calculateParameters() override;
-
-    void buildTageTables() override;
-
-    void calculateIndicesAndTags(
-        ThreadID tid, Addr branch_pc, TAGEBase::BranchInfo* bi) override;
-
-    unsigned getUseAltIdx(TAGEBase::BranchInfo* bi, Addr branch_pc) override;
-
-    void updateHistories(
-        ThreadID tid, Addr branch_pc, bool taken, TAGEBase::BranchInfo* b,
-        bool speculative, const StaticInstPtr &inst,
-        Addr target) override;
-
-    int bindex(Addr pc_in) const override;
-    int gindex(ThreadID tid, Addr pc, int bank) const override;
-    virtual int gindex_ext(int index, int bank) const = 0;
-    int F(int phist, int size, int bank) const override;
-
-    virtual uint16_t gtag(ThreadID tid, Addr pc, int bank) const override = 0;
-
-    void squash(ThreadID tid, bool taken, TAGEBase::BranchInfo *bi,
-                Addr target) override;
-
-    void updatePathAndGlobalHistory(
-        ThreadHistory & tHist, int brtype, bool taken,
-        Addr branch_pc, Addr target);
-
-    void adjustAlloc(bool & alloc, bool taken, bool pred_taken) override;
-
-    virtual void handleAllocAndUReset(bool alloc, bool taken,
-        TAGEBase::BranchInfo* bi, int nrand) override = 0;
-
-    void handleUReset() override;
-
-    virtual void handleTAGEUpdate(
-        Addr branch_pc, bool taken, TAGEBase::BranchInfo* bi) override = 0;
-
-    int calcDep(TAGEBase::BranchInfo* bi);
-
-    bool getBimodePred(Addr branch_pc,
-                       TAGEBase::BranchInfo* tage_bi) const override;
-
-    void extraAltCalc(TAGEBase::BranchInfo* bi) override;
-
-};
-
-class TAGE_SC_L_LoopPredictor : public LoopPredictor
-{
-  public:
-    TAGE_SC_L_LoopPredictor(const TAGE_SC_L_LoopPredictorParams &p)
-      : LoopPredictor(p)
-    {}
-
-    virtual bool calcConf(int index) const override;
-    virtual bool optionalAgeInc() const override;
-};
-
-class TAGE_SC_L: public LTAGE
-{
-    StatisticalCorrector *statisticalCorrector;
-  public:
-    TAGE_SC_L(const TAGE_SC_LParams &params);
-
-    bool predict(ThreadID tid, Addr pc, bool cond_branch, void* &b) override;
-
-    void update(ThreadID tid, Addr pc, bool taken,
-                void * &bp_history, bool squashed,
-                const StaticInstPtr & inst, Addr target) override;
-
-  protected:
-
-    struct TageSCLBranchInfo : public LTageBranchInfo
+    class TAGE_SC_L_LoopPredictor : public LoopPredictor
     {
+    public:
+      TAGE_SC_L_LoopPredictor(const TAGE_SC_L_LoopPredictorParams &p)
+          : LoopPredictor(p)
+      {
+      }
+
+      virtual bool calcConf(int index) const override;
+      virtual bool optionalAgeInc() const override;
+    };
+
+    class TAGE_SC_L : public LTAGE
+    {
+      StatisticalCorrector *statisticalCorrector;
+
+    public:
+      TAGE_SC_L(const TAGE_SC_LParams &params);
+
+      bool predict(ThreadID tid, Addr pc, bool cond_branch, void *&b) override;
+
+      void update(ThreadID tid, Addr branch_addr, bool taken, void *&bpHistory,
+                  bool squashed, const StaticInstPtr &inst,
+                  Addr corrTarget) override;
+
+      void branchPlaceholder(ThreadID tid, Addr pc,
+                             bool uncond, void *&bpHistory) override
+      {
+        panic("Not implemented for this BP!\n");
+      }
+
+    protected:
+      struct TageSCLBranchInfo : public LTageBranchInfo
+      {
         StatisticalCorrector::BranchInfo *scBranchInfo;
 
         TageSCLBranchInfo(TAGEBase &tage, StatisticalCorrector &sc,
-                          LoopPredictor &lp)
-          : LTageBranchInfo(tage, lp), scBranchInfo(sc.makeBranchInfo())
-        {}
+                          LoopPredictor &lp, Addr pc, bool cond_branch)
+            : LTageBranchInfo(tage, lp, pc, cond_branch),
+              scBranchInfo(sc.makeBranchInfo())
+        {
+        }
 
         virtual ~TageSCLBranchInfo()
         {
-            delete scBranchInfo;
+          delete scBranchInfo;
         }
-    };
+      };
 
-    // more provider types
-    enum
-    {
+      // more provider types
+      enum
+      {
         SC = LAST_LTAGE_PROVIDER_TYPE + 1
+      };
     };
 
-};
-
-} // namespace branch_prediction
+  } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_TAGE_SC_L_HH__

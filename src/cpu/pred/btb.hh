@@ -41,7 +41,6 @@
 #ifndef __CPU_PRED_BTB_HH__
 #define __CPU_PRED_BTB_HH__
 
-
 #include "arch/generic/pcstate.hh"
 #include "base/statistics.hh"
 #include "cpu/pred/branch_type.hh"
@@ -52,79 +51,91 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+  namespace branch_prediction
+  {
 
-class BranchTargetBuffer : public ClockedObject
-{
-  public:
-    typedef BranchTargetBufferParams Params;
-    typedef enums::BranchType BranchType;
+    class BranchTargetBuffer : public ClockedObject
+    {
+    public:
+      typedef BranchTargetBufferParams Params;
+      typedef enums::BranchType BranchType;
 
-    BranchTargetBuffer(const Params &params);
+      BranchTargetBuffer(const Params &params);
 
-    virtual void memInvalidate() override = 0;
+      virtual void memInvalidate() override = 0;
 
-    /** Checks if a branch address is in the BTB. Intended as a quick check
-     *  before calling lookup. Does not update statistics.
-     *  @param inst_PC The address of the branch to look up.
-     *  @return Whether or not the branch exists in the BTB.
-     */
-    virtual bool valid(ThreadID tid, Addr instPC) = 0;
+      /** Checks if a branch address is in the BTB. Intended as a quick check
+       *  before calling lookup. Does not update statistics.
+       *  @param inst_PC The address of the branch to look up.
+       *  @return Returns the target of the branch.
+       */
+      virtual const PCStateBase *lookup(ThreadID tid, Addr instPC,
+                                        BranchType type = BranchType::NoBranch) = 0;
 
-    /** Looks up an address in the BTB to get the target of the branch.
-     *  @param inst_PC The address of the branch to look up.
-     *  @param type Optional type of the branch to look up.
-     *  @return The target of the branch or nullptr if the branch is not
-     *          in the BTB.
-     */
-    virtual const PCStateBase *lookup(ThreadID tid, Addr instPC,
-                            BranchType type = BranchType::NoBranch) = 0;
+      /** Looks up an address in the BTB and return the instruction
+       * information if existant. May not be supported in all BTBs.
+       *  @param inst_PC The address of the branch to look up.
+       *  @return Returns the target of the branch.
+       */
+      virtual const StaticInstPtr lookupInst(ThreadID tid, Addr instPC) = 0;
 
-    /** Looks up an address in the BTB and return the instruction
-     * information if existant. Does not update statistics.
-     *  @param inst_PC The address of the branch to look up.
-     *  @return Returns the target of the branch.
-     */
-    virtual const StaticInstPtr getInst(ThreadID tid, Addr instPC) = 0;
+      /** Checks if a branch is in the BTB.
+       *  @param inst_PC The address of the branch to look up.
+       *  @param inst Optional passing in the branch type for better statistics.
+       *  @return Whether or not the branch exists in the BTB.
+       */
+      virtual bool valid(ThreadID tid, Addr instPC,
+                         BranchType type = BranchType::NoBranch) = 0;
 
-
-    /** Updates the BTB with the target of a branch.
-     *  @param inst_pc The address of the branch being updated.
-     *  @param target_pc The target address of the branch.
-     */
-    virtual void update(ThreadID tid, Addr inst_pc,
+      /** Updates the BTB with the target of a branch.
+       *  @param inst_pc The address of the branch being updated.
+       *  @param target_pc The target address of the branch.
+       */
+      virtual void update(ThreadID tid, Addr inst_pc,
                           const PCStateBase &target_pc,
                           BranchType type = BranchType::NoBranch,
                           StaticInstPtr inst = nullptr) = 0;
 
-    /** Update BTB statistics
-     */
-    virtual void incorrectTarget(Addr inst_pc,
-                                  BranchType type = BranchType::NoBranch)
-    {
-      stats.mispredict[type]++;
-    }
+      /** Update BTB statistics
+       */
+      virtual void incorrectTarget(Addr inst_pc,
+                                   BranchType type = BranchType::NoBranch)
+      {
 
-  protected:
-    /** Number of the threads for which the branch history is maintained. */
-    const unsigned numThreads;
+        if (type != BranchType::NoBranch)
+        {
+          stats.mispredict[type]++;
+        }
+      }
 
-    struct BranchTargetBufferStats : public statistics::Group
-    {
+    protected:
+      /** Number of the threads for which the branch history is maintained. */
+      const unsigned numThreads;
+
+      struct BranchTargetBufferStats : public statistics::Group
+      {
         BranchTargetBufferStats(statistics::Group *parent);
 
-        statistics::Vector lookups;
-        statistics::Vector misses;
+        /** Stat for number of BTB lookups. */
+        statistics::Scalar lookups;
+        statistics::Vector lookupType;
+        /** Stat for number of BTB misses. */
+        statistics::Scalar misses;
+        statistics::Vector missType;
+        /** Stat for number for the ratio between BTB misses and lookups. */
+        statistics::Formula missRatio;
+        /** Stat for number of BTB updates. */
         statistics::Vector updates;
+        /** Stat for number BTB mispredictions.
+         * No target found or target wrong */
         statistics::Vector mispredict;
+        /** Stat for number of BTB updates. */
         statistics::Scalar evictions;
 
-    } stats;
+      } stats;
+    };
 
-};
-
-} // namespace branch_prediction
+  } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_BTB_HH__

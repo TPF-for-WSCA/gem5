@@ -43,57 +43,71 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+    namespace branch_prediction
+    {
 
-BranchTargetBuffer::BranchTargetBuffer(const Params &params)
-    : ClockedObject(params),
-      numThreads(params.numThreads),
-      stats(this)
-{
-}
+        BranchTargetBuffer::BranchTargetBuffer(const Params &params)
+            : ClockedObject(params),
+              numThreads(params.numThreads),
+              stats(this)
+        {
+        }
 
-BranchTargetBuffer::BranchTargetBufferStats::BranchTargetBufferStats(
-                                                statistics::Group *parent)
-    : statistics::Group(parent),
-      ADD_STAT(lookups, statistics::units::Count::get(),
-               "Number of BTB lookups"),
-      ADD_STAT(misses, statistics::units::Count::get(),
-               "Number of BTB misses"),
-      ADD_STAT(updates, statistics::units::Count::get(),
-               "Number of BTB updates"),
-      ADD_STAT(mispredict, statistics::units::Count::get(),
-               "Number of BTB mispredictions. "
-               "No target found or target wrong."),
-      ADD_STAT(evictions, statistics::units::Count::get(),
-               "Number of BTB evictions")
-{
-    using namespace statistics;
-    lookups
-        .init(enums::Num_BranchType)
-        .flags(total | pdf);
+        const StaticInstPtr
+        BranchTargetBuffer::lookupInst(ThreadID tid, Addr instPC)
+        {
+            panic("Not implemented for this BTB");
+            return nullptr;
+        }
 
-    misses
-        .init(enums::Num_BranchType)
-        .flags(total | pdf);
+        BranchTargetBuffer::BranchTargetBufferStats::BranchTargetBufferStats(
+            statistics::Group *parent)
+            : statistics::Group(parent),
+              ADD_STAT(lookups, statistics::units::Count::get(),
+                       "Number of BTB lookups"),
+              ADD_STAT(lookupType, statistics::units::Count::get(),
+                       "Number of BTB lookups per branch type"),
+              ADD_STAT(misses, statistics::units::Count::get(),
+                       "Number of BTB misses"),
+              ADD_STAT(missType, statistics::units::Count::get(),
+                       "Number of BTB misses per branch type"),
+              ADD_STAT(missRatio, statistics::units::Ratio::get(), "BTB Hit Ratio",
+                       misses / lookups),
+              ADD_STAT(updates, statistics::units::Count::get(),
+                       "Number of BTB updates"),
+              ADD_STAT(mispredict, statistics::units::Count::get(),
+                       "Number of BTB mispredicts"),
+              ADD_STAT(evictions, statistics::units::Count::get(),
+                       "Number of BTB evictions")
+        {
+            using namespace statistics;
+            missRatio.precision(6);
+            lookupType
+                .init(enums::Num_BranchType)
+                .flags(total | pdf);
 
-    updates
-        .init(enums::Num_BranchType)
-        .flags(total | pdf);
+            missType
+                .init(enums::Num_BranchType)
+                .flags(total | pdf);
 
-    mispredict
-        .init(enums::Num_BranchType)
-        .flags(total | pdf);
+            updates
+                .init(enums::Num_BranchType)
+                .flags(total | pdf);
 
-    evictions.flags(nozero);
+            mispredict
+                .init(enums::Num_BranchType)
+                .flags(total | pdf);
 
-    for (int i = 0; i < enums::Num_BranchType; i++) {
-        lookups.subname(i, enums::BranchTypeStrings[i]);
-        misses.subname(i, enums::BranchTypeStrings[i]);
-        updates.subname(i, enums::BranchTypeStrings[i]);
-        mispredict.subname(i, enums::BranchTypeStrings[i]);
-    }
-}
+            evictions.flags(nozero);
 
-} // namespace branch_prediction
+            for (int i = 0; i < enums::Num_BranchType; i++)
+            {
+                lookupType.subname(i, enums::BranchTypeStrings[i]);
+                missType.subname(i, enums::BranchTypeStrings[i]);
+                updates.subname(i, enums::BranchTypeStrings[i]);
+                mispredict.subname(i, enums::BranchTypeStrings[i]);
+            }
+        }
+
+    } // namespace branch_prediction
 } // namespace gem5

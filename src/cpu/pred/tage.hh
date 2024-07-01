@@ -70,45 +70,48 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
-
-class TAGE: public BPredUnit
-{
-  protected:
-    TAGEBase *tage;
-
-    struct TageBranchInfo
+    namespace branch_prediction
     {
-        TAGEBase::BranchInfo *tageBranchInfo;
 
-        TageBranchInfo(TAGEBase &tage) : tageBranchInfo(tage.makeBranchInfo())
-        {}
-
-        virtual ~TageBranchInfo()
+        class TAGE : public BPredUnit
         {
-            delete tageBranchInfo;
-        }
-    };
+        protected:
+            TAGEBase *tage;
 
-    virtual bool predict(ThreadID tid, Addr branch_pc, bool cond_branch,
-                         void* &b);
+            struct TageBranchInfo
+            {
+                TAGEBase::BranchInfo *tageBranchInfo;
 
-  public:
+                TageBranchInfo(TAGEBase &tage, Addr pc, bool conditional)
+                    : tageBranchInfo(tage.makeBranchInfo(pc, conditional))
+                {
+                }
 
-    TAGE(const TAGEParams &params);
+                virtual ~TageBranchInfo()
+                {
+                    delete tageBranchInfo;
+                }
+            };
 
-    // Base class methods.
-    bool lookup(ThreadID tid, Addr pc, void* &bp_history) override;
-    void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
-                         Addr target,  void * &bp_history) override;
-    void update(ThreadID tid, Addr pc, bool taken,
-                void * &bp_history, bool squashed,
-                const StaticInstPtr & inst, Addr target) override;
-    virtual void squash(ThreadID tid, void * &bp_history) override;
-};
+            virtual bool predict(ThreadID tid, Addr branch_pc, bool cond_branch,
+                                 void *&b);
 
-} // namespace branch_prediction
+        public:
+            TAGE(const TAGEParams &params);
+
+            // Base class methods.
+            bool lookup(ThreadID tid, Addr branch_addr, void *&bpHistory) override;
+            void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
+                                 Addr target, void *&bpHistory) override;
+            void update(ThreadID tid, Addr branch_addr, bool taken, void *&bpHistory,
+                        bool squashed, const StaticInstPtr &inst,
+                        Addr corrTarget) override;
+            virtual void squash(ThreadID tid, void *&bpHistory) override;
+            virtual void branchPlaceholder(ThreadID tid, Addr pc,
+                                           bool uncond, void *&bpHistory) override;
+        };
+
+    } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_TAGE_HH__

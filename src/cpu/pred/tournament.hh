@@ -52,156 +52,160 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
-
-/**
- * Implements a tournament branch predictor, hopefully identical to the one
- * used in the 21264.  It has a local predictor, which uses a local history
- * table to index into a table of counters, and a global predictor, which
- * uses a global history to index into a table of counters.  A choice
- * predictor chooses between the two.  Both the global history register
- * and the selected local history are speculatively updated.
- */
-class TournamentBP : public BPredUnit
-{
-  public:
-    /**
-     * Default branch predictor constructor.
-     */
-    TournamentBP(const TournamentBPParams &params);
-
-    // Base class methods.
-    bool lookup(ThreadID tid, Addr pc, void* &bp_history) override;
-    void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
-                         Addr target,  void * &bp_history) override;
-    void update(ThreadID tid, Addr pc, bool taken,
-                void * &bp_history, bool squashed,
-                const StaticInstPtr & inst, Addr target) override;
-    void squash(ThreadID tid, void * &bp_history) override;
-
-  private:
-    /**
-     * Returns if the branch should be taken or not, given a counter
-     * value.
-     * @param count The counter value.
-     */
-    inline bool getPrediction(uint8_t &count);
-
-    /**
-     * Returns the local history index, given a branch address.
-     * @param branch_addr The branch's PC address.
-     */
-    inline unsigned calcLocHistIdx(Addr &branch_addr);
-
-    /** Updates global history with the given direction
-     * @param taken Whether or not the branch was taken
-    */
-    inline void updateGlobalHist(ThreadID tid, bool taken);
-
-    /**
-     * Updates local histories.
-     * @param local_history_idx The local history table entry that
-     * will be updated.
-     * @param taken Whether or not the branch was taken.
-     */
-    inline void updateLocalHist(unsigned local_history_idx, bool taken);
-
-    /**
-     * The branch history information that is created upon predicting
-     * a branch.  It will be passed back upon updating and squashing,
-     * when the BP can use this information to update/restore its
-     * state properly.
-     */
-    struct BPHistory
+    namespace branch_prediction
     {
+
+        /**
+         * Implements a tournament branch predictor, hopefully identical to the one
+         * used in the 21264.  It has a local predictor, which uses a local history
+         * table to index into a table of counters, and a global predictor, which
+         * uses a global history to index into a table of counters.  A choice
+         * predictor chooses between the two.  Both the global history register
+         * and the selected local history are speculatively updated.
+         */
+        class TournamentBP : public BPredUnit
+        {
+        public:
+            /**
+             * Default branch predictor constructor.
+             */
+            TournamentBP(const TournamentBPParams &params);
+
+            // Base class methods.
+            bool lookup(ThreadID tid, Addr branch_addr, void *&bpHistory) override;
+            void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
+                                 Addr target, void *&bpHistory) override;
+            void update(ThreadID tid, Addr branch_addr, bool taken, void *&bpHistory,
+                        bool squashed, const StaticInstPtr &inst,
+                        Addr corrTarget) override;
+            void squash(ThreadID tid, void *&bpHistory) override;
+
+        private:
+            /**
+             * Returns if the branch should be taken or not, given a counter
+             * value.
+             * @param count The counter value.
+             */
+            inline bool getPrediction(uint8_t &count);
+
+            /**
+             * Returns the local history index, given a branch address.
+             * @param branch_addr The branch's PC address.
+             */
+            inline unsigned calcLocHistIdx(Addr &branch_addr);
+
+            /** Updates global history with the given direction
+             * @param taken Whether or not the branch was taken
+             */
+            inline void updateGlobalHist(ThreadID tid, bool taken);
+
+            /**
+             * Updates local histories.
+             * @param local_history_idx The local history table entry that
+             * will be updated.
+             * @param taken Whether or not the branch was taken.
+             */
+            inline void updateLocalHist(unsigned local_history_idx, bool taken);
+
+            /**
+             * The branch history information that is created upon predicting
+             * a branch.  It will be passed back upon updating and squashing,
+             * when the BP can use this information to update/restore its
+             * state properly.
+             */
+            struct BPHistory
+            {
 #ifdef GEM5_DEBUG
-        BPHistory()
-        { newCount++; }
-        ~BPHistory()
-        { newCount--; }
+                BPHistory()
+                {
+                    newCount++;
+                }
+                ~BPHistory()
+                {
+                    newCount--;
+                }
 
-        static int newCount;
+                static int newCount;
 #endif
-        unsigned globalHistory;
-        unsigned localHistoryIdx;
-        unsigned localHistory;
-        bool localPredTaken;
-        bool globalPredTaken;
-        bool globalUsed;
-    };
+                unsigned globalHistory;
+                unsigned localHistoryIdx;
+                unsigned localHistory;
+                bool localPredTaken;
+                bool globalPredTaken;
+                bool globalUsed;
+            };
 
-    /** Flag for invalid predictor index */
-    static const int invalidPredictorIndex = -1;
-    /** Number of counters in the local predictor. */
-    unsigned localPredictorSize;
+            /** Flag for invalid predictor index */
+            static const int invalidPredictorIndex = -1;
+            /** Number of counters in the local predictor. */
+            unsigned localPredictorSize;
 
-    /** Mask to truncate values stored in the local history table. */
-    unsigned localPredictorMask;
+            /** Mask to truncate values stored in the local history table. */
+            unsigned localPredictorMask;
 
-    /** Number of bits of the local predictor's counters. */
-    unsigned localCtrBits;
+            /** Number of bits of the local predictor's counters. */
+            unsigned localCtrBits;
 
-    /** Local counters. */
-    std::vector<SatCounter8> localCtrs;
+            /** Local counters. */
+            std::vector<SatCounter8> localCtrs;
 
-    /** Array of local history table entries. */
-    std::vector<unsigned> localHistoryTable;
+            /** Array of local history table entries. */
+            std::vector<unsigned> localHistoryTable;
 
-    /** Number of entries in the local history table. */
-    unsigned localHistoryTableSize;
+            /** Number of entries in the local history table. */
+            unsigned localHistoryTableSize;
 
-    /** Number of bits for each entry of the local history table. */
-    unsigned localHistoryBits;
+            /** Number of bits for each entry of the local history table. */
+            unsigned localHistoryBits;
 
-    /** Number of entries in the global predictor. */
-    unsigned globalPredictorSize;
+            /** Number of entries in the global predictor. */
+            unsigned globalPredictorSize;
 
-    /** Number of bits of the global predictor's counters. */
-    unsigned globalCtrBits;
+            /** Number of bits of the global predictor's counters. */
+            unsigned globalCtrBits;
 
-    /** Array of counters that make up the global predictor. */
-    std::vector<SatCounter8> globalCtrs;
+            /** Array of counters that make up the global predictor. */
+            std::vector<SatCounter8> globalCtrs;
 
-    /** Global history register. Contains as much history as specified by
-     *  globalHistoryBits. Actual number of bits used is determined by
-     *  globalHistoryMask and choiceHistoryMask. */
-    std::vector<unsigned> globalHistory;
+            /** Global history register. Contains as much history as specified by
+             *  globalHistoryBits. Actual number of bits used is determined by
+             *  globalHistoryMask and choiceHistoryMask. */
+            std::vector<unsigned> globalHistory;
 
-    /** Number of bits for the global history. Determines maximum number of
-        entries in global and choice predictor tables. */
-    unsigned globalHistoryBits;
+            /** Number of bits for the global history. Determines maximum number of
+                entries in global and choice predictor tables. */
+            unsigned globalHistoryBits;
 
-    /** Mask to apply to globalHistory to access global history table.
-     *  Based on globalPredictorSize.*/
-    unsigned globalHistoryMask;
+            /** Mask to apply to globalHistory to access global history table.
+             *  Based on globalPredictorSize.*/
+            unsigned globalHistoryMask;
 
-    /** Mask to apply to globalHistory to access choice history table.
-     *  Based on choicePredictorSize.*/
-    unsigned choiceHistoryMask;
+            /** Mask to apply to globalHistory to access choice history table.
+             *  Based on choicePredictorSize.*/
+            unsigned choiceHistoryMask;
 
-    /** Mask to control how much history is stored. All of it might not be
-     *  used. */
-    unsigned historyRegisterMask;
+            /** Mask to control how much history is stored. All of it might not be
+             *  used. */
+            unsigned historyRegisterMask;
 
-    /** Number of entries in the choice predictor. */
-    unsigned choicePredictorSize;
+            /** Number of entries in the choice predictor. */
+            unsigned choicePredictorSize;
 
-    /** Number of bits in the choice predictor's counters. */
-    unsigned choiceCtrBits;
+            /** Number of bits in the choice predictor's counters. */
+            unsigned choiceCtrBits;
 
-    /** Array of counters that make up the choice predictor. */
-    std::vector<SatCounter8> choiceCtrs;
+            /** Array of counters that make up the choice predictor. */
+            std::vector<SatCounter8> choiceCtrs;
 
-    /** Thresholds for the counter value; above the threshold is taken,
-     *  equal to or below the threshold is not taken.
-     */
-    unsigned localThreshold;
-    unsigned globalThreshold;
-    unsigned choiceThreshold;
-};
+            /** Thresholds for the counter value; above the threshold is taken,
+             *  equal to or below the threshold is not taken.
+             */
+            unsigned localThreshold;
+            unsigned globalThreshold;
+            unsigned choiceThreshold;
+        };
 
-} // namespace branch_prediction
+    } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_TOURNAMENT_PRED_HH__

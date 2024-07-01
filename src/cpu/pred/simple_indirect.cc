@@ -44,356 +44,395 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+    namespace branch_prediction
+    {
 
-SimpleIndirectPredictor::SimpleIndirectPredictor(
-        const SimpleIndirectPredictorParams &params)
-    : IndirectPredictor(params),
-      hashGHR(params.indirectHashGHR),
-      hashTargets(params.indirectHashTargets),
-      numSets(params.indirectSets),
-      numWays(params.indirectWays),
-      tagBits(params.indirectTagSize),
-      pathLength(params.indirectPathLength),
-      speculativePathLength(params.speculativePathLength),
-      instShift(params.instShiftAmt),
-      ghrNumBits(params.indirectGHRBits),
-      ghrMask((1 << params.indirectGHRBits)-1),
-      stats(this)
-{
-    if (!isPowerOf2(numSets)) {
-        panic("Indirect predictor requires power of 2 number of sets");
-    }
-
-    threadInfo.resize(params.numThreads);
-
-    targetCache.resize(numSets);
-    for (unsigned i = 0; i < numSets; i++) {
-        targetCache[i].resize(numWays);
-    }
-
-    fatal_if(ghrNumBits > (sizeof(ThreadInfo::ghr)*8), "ghr_size is too big");
-}
-
-
-void
-SimpleIndirectPredictor::reset()
-{
-    DPRINTF(Indirect, "Reset Indirect predictor\n");
-
-    for (auto& ti : threadInfo) {
-        ti.ghr = 0;
-        ti.pathHist.clear();
-    }
-
-    for (unsigned i = 0; i < numSets; i++) {
-        for (unsigned j = 0; j < numWays; j++) {
-            targetCache[i][j].tag = 0;
-        }
-    }
-}
-
-
-void
-SimpleIndirectPredictor::genIndirectInfo(ThreadID tid, void* &i_history)
-{
-    // Record the GHR as it was before this prediction
-    // It will be used to recover the history in case this prediction is
-    // wrong or belongs to bad path
-    IndirectHistory* history = new IndirectHistory;
-    history->ghr = threadInfo[tid].ghr;
-    i_history = static_cast<void*>(history);
-}
-
-void
-SimpleIndirectPredictor::updateDirectionInfo(ThreadID tid, bool taken,
-                                             Addr pc, Addr target)
-{
-    // Direction history
-    threadInfo[tid].ghr <<= 1;
-    threadInfo[tid].ghr |= taken;
-    threadInfo[tid].ghr &= ghrMask;
-}
-
-
-
-// Interface methods ------------------------------
-const PCStateBase *
-SimpleIndirectPredictor::lookup(ThreadID tid, InstSeqNum sn,
-                                Addr pc, void * &i_history)
-{
-    assert(i_history==nullptr);
-
-    genIndirectInfo(tid, i_history);
-    IndirectHistory *history = static_cast<IndirectHistory*>(i_history);
-
-    history->pcAddr = pc;
-    history->was_indirect = true;
-
-    /** Do the prediction for indirect branches (no returns) */
-    PCStateBase* target = nullptr;
-    history->hit = lookup(tid, pc, target, history);
-    return target;
-}
-
-bool
-SimpleIndirectPredictor::lookup(ThreadID tid, Addr br_addr,
-                                PCStateBase * &target,
-                                IndirectHistory * &history)
-{
-
-    history->set_index = getSetIndex(br_addr, tid);
-    history->tag = getTag(br_addr);
-    assert(history->set_index < numSets);
-    stats.lookups++;
-
-    DPRINTF(Indirect, "Looking up PC:%#x, (set:%d, tag:%d), "
-                    "ghr:%#x, pathHist sz:%#x\n",
-                    history->pcAddr, history->set_index, history->tag,
-                    history->ghr, threadInfo[tid].pathHist.size());
-
-    const auto &iset = targetCache[history->set_index];
-    for (auto way = iset.begin(); way != iset.end(); ++way) {
-        // tag may be 0 and match the default in way->tag, so we also have to
-        // check that way->target has been initialized.
-        if (way->tag == history->tag && way->target) {
-            DPRINTF(Indirect, "Hit %x (target:%s)\n", br_addr, *way->target);
-            set(target, *way->target);
-            history->hit = true;
-            stats.hits++;
-            return history->hit;
-        }
-    }
-    DPRINTF(Indirect, "Miss %x\n", br_addr);
-    history->hit = false;
-    stats.misses++;
-    return history->hit;
-}
-
-
-void
-SimpleIndirectPredictor::commit(ThreadID tid, InstSeqNum sn, void * &i_history)
-{
-    if (i_history == nullptr) return;
-    // we do not need to recover the GHR, so delete the information
-    IndirectHistory *history = static_cast<IndirectHistory*>(i_history);
-
-    DPRINTF(Indirect, "Committing seq:%d, PC:%#x, ghr:%#x, pathHist sz:%lu\n",
-            sn, history->pcAddr, history->ghr,
-            threadInfo[tid].pathHist.size());
-
-    delete history;
-    i_history = nullptr;
-
-    /** Delete histories if the history grows to much */
-    while (threadInfo[tid].pathHist.size()
-            >= (pathLength + speculativePathLength)) {
-
-        threadInfo[tid].pathHist.pop_front();
-    }
-}
-
-void
-SimpleIndirectPredictor::update(ThreadID tid, InstSeqNum sn, Addr pc,
-                           bool squash, bool taken, const PCStateBase& target,
-                           BranchType br_type, void * &i_history)
-{
-    // If there is no history we did not use the indirect predictor yet.
-    // Create one
-    if (i_history==nullptr) {
-        genIndirectInfo(tid, i_history);
-    }
-    IndirectHistory *history = static_cast<IndirectHistory*>(i_history);
-    assert(history!=nullptr);
-
-    DPRINTF(Indirect, "Update sn:%i PC:%#x, squash:%i, ghr:%#x,path sz:%i\n",
-               sn, pc, squash, history->ghr, threadInfo[tid].pathHist.size());
-
-    /** If update was called during squash we need to fix the indirect
-     * path history and the global path history.
-     * We restore the state before this branch incorrectly updated it
-     * and perform the update afterwards again.
-    */
-    history->was_indirect = isIndirectNoReturn(br_type);
-    if (squash) {
-
-        /** restore global history */
-        threadInfo[tid].ghr = history->ghr;
-
-        /** For indirect branches recalculate index and tag */
-        if (history->was_indirect) {
-            if (!threadInfo[tid].pathHist.empty()) {
-                threadInfo[tid].pathHist.pop_back();
+        SimpleIndirectPredictor::SimpleIndirectPredictor(
+            const SimpleIndirectPredictorParams &params)
+            : IndirectPredictor(params),
+              hashGHR(params.indirectHashGHR),
+              hashTargets(params.indirectHashTargets),
+              takenHistory(params.takenOnlyHistory),
+              numSets(params.indirectSets),
+              numWays(params.indirectWays),
+              tagBits(params.indirectTagSize),
+              pathLength(params.indirectPathLength),
+              speculativePathLength(params.speculativePathLength),
+              instShift(params.instShiftAmt),
+              ghrNumBits(params.indirectGHRBits),
+              ghrMask((1 << params.indirectGHRBits) - 1),
+              stats(this)
+        {
+            if (!isPowerOf2(numSets))
+            {
+                panic("Indirect predictor requires power of 2 number of sets");
             }
 
-            history->set_index = getSetIndex(history->pcAddr, tid);
-            history->tag = getTag(history->pcAddr);
+            pathReg.resize(params.numThreads);
+            for (unsigned i = 0; i < params.numThreads; i++)
+            {
+                threadInfo.emplace_back(pathLength * 3);
+                for (unsigned j = 0; j < pathLength + 2; j++)
+                {
+                    threadInfo[i].indirectHist.push_back(HistoryEntry());
+                }
+            }
 
-            DPRINTF(Indirect, "Record Target seq:%d, PC:%#x, TGT:%#x, "
-                        "ghr:%#x, (set:%x, tag:%x)\n",
-                        sn, history->pcAddr, target, history->ghr,
-                        history->set_index, history->tag);
+            targetCache.resize(numSets);
+            for (unsigned i = 0; i < numSets; i++)
+            {
+                targetCache[i].resize(numWays);
+            }
+
+            fatal_if(ghrNumBits > (sizeof(ThreadInfo::ghr) * 8), "ghr_size is too big");
         }
-    }
 
-    // Only indirect branches are recorded in the path history
-    if (history->was_indirect) {
+        // Interface functions -----------------------------------
+        void
+        SimpleIndirectPredictor::reset()
+        {
+            DPRINTF(Indirect, "Reset Indirect predictor\n");
 
-        DPRINTF(Indirect, "Recording %x seq:%d\n", history->pcAddr, sn);
-        threadInfo[tid].pathHist.emplace_back(
-                                    history->pcAddr, target.instAddr(), sn);
+            for (auto &ti : threadInfo)
+            {
+                ti.ghr = 0;
+                ti.headHistEntry = 0;
+                ti.pathHist.clear();
+            }
 
-        stats.indirectRecords++;
-    }
+            for (unsigned i = 0; i < numSets; i++)
+            {
+                for (unsigned j = 0; j < numWays; j++)
+                {
+                    targetCache[i][j] = 0;
+                }
+            }
+        }
 
-    // All branches update the global history
-    updateDirectionInfo(tid,taken, history->pcAddr, target.instAddr());
+        const PCStateBase *
+        SimpleIndirectPredictor::lookup(ThreadID tid, InstSeqNum sn,
+                                        Addr pc, void *&iHistory)
+        {
+            assert(iHistory == nullptr);
 
-    // Finally if update is called during at squash we know the target
-    // we predicted was wrong therefore we update the target.
-    // We only record the target if the branch was indirect and taken
-    if (squash && history->was_indirect && taken)
-        recordTarget(tid, sn, target, history);
-}
+            genIndirectInfo(tid, iHistory);
+            IndirectHistory *history = static_cast<IndirectHistory *>(iHistory);
 
+            history->pcAddr = pc;
+            history->dir_taken = true;
+            history->was_indirect = true;
 
+            history->hit = false;
 
-void
-SimpleIndirectPredictor::squash(ThreadID tid, InstSeqNum sn, void * &i_history)
-{
-    if (i_history == nullptr) return;
+            /** Do the prediction for indirect branches (no returns) */
+            PCStateBase *target = nullptr;
+            history->hit = lookup(tid, pc, target, history);
+            return target;
+        }
 
-    // we do not need to recover the GHR, so delete the information
-    IndirectHistory *history = static_cast<IndirectHistory*>(i_history);
+        void
+        SimpleIndirectPredictor::update(ThreadID tid, InstSeqNum sn, Addr pc,
+                                        bool squash, bool taken, const PCStateBase &target,
+                                        BranchType brType, void *&iHistory)
+        {
+            // If there is no history we did not use the indirect predictor yet.
+            // Create one
+            if (iHistory == nullptr)
+            {
+                genIndirectInfo(tid, iHistory);
+            }
+            IndirectHistory *history = static_cast<IndirectHistory *>(iHistory);
+            assert(history != nullptr);
 
-    DPRINTF(Indirect, "Squashing seq:%d, PC:%#x, indirect:%i, "
-                    "ghr:%#x, pathHist sz:%#x\n",
+            DPRINTF(Indirect, "Update sn:%i PC:%#x, squash:%i, ghr:%#x,path sz:%i\n",
+                    sn, pc, squash, history->ghr, threadInfo[tid].pathHist.size());
+
+            /** If update was called during squash we need to fix the indirect
+             * path history and the global path history.
+             * We simply restore the previous state and perform the normal update in
+             * the later
+             */
+            history->was_indirect = isIndirectNoReturn(brType);
+            if (squash)
+            {
+
+                /** restore global history */
+                threadInfo[tid].ghr = history->ghr;
+
+                /** For indirect branches recalculate index and tag */
+                if (history->was_indirect)
+                {
+                    if (!threadInfo[tid].pathHist.empty())
+                    {
+                        threadInfo[tid].pathHist.pop_back();
+                    }
+
+                    history->set_index = getSetIndex(history->pcAddr, tid);
+                    history->tag = getTag(history->pcAddr);
+
+                    DPRINTF(Indirect, "Record Target seq:%d, PC:%#x, TGT:%#x, "
+                                      "ghr:%#x, path sz:%#x, (set:%x, tag:%x)\n",
+                            sn, history->pcAddr, target, history->ghr,
+                            threadInfo[tid].pathHist.size(),
+                            history->set_index, history->tag);
+                }
+            }
+
+            // If it was an indirect branch we record it
+            if (history->was_indirect)
+            {
+
+                DPRINTF(Indirect, "Recording %x seq:%d\n", history->pcAddr, sn);
+                threadInfo[tid].pathHist.emplace_back(
+                    history->pcAddr, target.instAddr(), sn);
+
+                stats.indirectRecords++;
+            }
+
+            // We always record the direction
+            updateDirectionInfo(tid, taken, history->pcAddr, target.instAddr());
+
+            if (history->was_indirect && taken && squash)
+                recordTarget(tid, sn, target, history);
+        }
+
+        void
+        SimpleIndirectPredictor::squash(ThreadID tid, InstSeqNum sn, void *&iHistory)
+        {
+            if (iHistory == nullptr)
+                return;
+
+            // we do not need to recover the GHR, so delete the information
+            IndirectHistory *history = static_cast<IndirectHistory *>(iHistory);
+
+            DPRINTF(Indirect, "Squashing seq:%d, PC:%#x, indirect:%i, "
+                              "ghr:%#x, pathHist sz:%#x\n",
                     sn, history->pcAddr, history->was_indirect,
                     history->ghr,
                     threadInfo[tid].pathHist.size());
 
+            // Revert the global history register.
+            threadInfo[tid].ghr = history->ghr;
 
-    // Revert the global history register.
-    threadInfo[tid].ghr = history->ghr;
+            // If we record this branch as indirect branch
+            // remove it from the history.
+            // Restore the old head in the history.
+            if (history->was_indirect)
+            {
 
-    // If we record this branch as indirect branch
-    // remove it from the history.
-    // Restore the old head in the history.
-    if (history->was_indirect) {
+                // Should not be empty
+                if (threadInfo[tid].pathHist.size() < pathLength)
+                {
+                    stats.speculativeOverflows++;
+                }
 
-        // Should not be empty
-        if (threadInfo[tid].pathHist.size() < pathLength) {
-            stats.speculativeOverflows++;
+                if (!threadInfo[tid].pathHist.empty())
+                {
+                    threadInfo[tid].pathHist.pop_back();
+                }
+            }
+
+            delete history;
+            iHistory = nullptr;
         }
 
-        if (!threadInfo[tid].pathHist.empty()) {
-            threadInfo[tid].pathHist.pop_back();
+        void
+        SimpleIndirectPredictor::commit(ThreadID tid, InstSeqNum sn, void *&iHistory)
+        {
+            if (iHistory == nullptr)
+                return;
+            // we do not need to recover the GHR, so delete the information
+            IndirectHistory *history = static_cast<IndirectHistory *>(iHistory);
+
+            DPRINTF(Indirect, "Committing seq:%d, PC:%#x, ghr:%#x, pathHist sz:%lu\n",
+                    sn, history->pcAddr, history->ghr,
+                    threadInfo[tid].pathHist.size());
+
+            delete history;
+            iHistory = nullptr;
+
+            /** Delete histories if the history grows to much */
+            while (threadInfo[tid].pathHist.size() >= (pathLength + speculativePathLength))
+            {
+
+                threadInfo[tid].pathHist.pop_front();
+            }
         }
-    }
 
-    delete history;
-    i_history = nullptr;
-}
+        // Internal functions ------------------------------
 
+        bool
+        SimpleIndirectPredictor::lookup(ThreadID tid, Addr br_addr,
+                                        PCStateBase *&target,
+                                        IndirectHistory *&history)
+        {
 
+            history->set_index = getSetIndex(br_addr, tid);
+            history->tag = getTag(br_addr);
+            assert(history->set_index < numSets);
+            stats.lookups++;
 
+            DPRINTF(Indirect, "Looking up PC:%#x, (set:%d, tag:%d), "
+                              "ghr:%#x, pathHist sz:%#x\n",
+                    history->pcAddr, history->set_index, history->tag,
+                    history->ghr, threadInfo[tid].pathHist.size());
 
-// Internal functions ------------------------------
+            const auto &iset = targetCache[history->set_index];
+            for (auto way = iset.begin(); way != iset.end(); ++way)
+            {
+                // tag may be 0 and match the default in way->tag, so we also have to
+                // check that way->target has been initialized.
+                if (way->tag == history->tag && way->target)
+                {
+                    DPRINTF(Indirect, "Hit %x (target:%s)\n", br_addr, *way->target);
+                    set(target, *way->target);
+                    history->hit = true;
+                    stats.hits++;
+                    history->targetAddr = target->instAddr();
+                    return history->hit;
+                }
+            }
+            DPRINTF(Indirect, "Miss %x\n", br_addr);
+            history->hit = false;
+            stats.misses++;
+            history->targetAddr = 0;
+            return history->hit;
+        }
 
+        void
+        SimpleIndirectPredictor::recordTarget(ThreadID tid, InstSeqNum sn,
+                                              const PCStateBase &target, IndirectHistory *&history)
+        {
+            // Should have just squashed so this branch should be the oldest
+            // and it should be predicted as indirect.
+            assert(!threadInfo[tid].pathHist.empty());
+            assert(history->was_indirect);
 
+            if (threadInfo[tid].pathHist.rbegin()->pcAddr != history->pcAddr)
+            {
+                DPRINTF(Indirect, "History seems to be destroyed. %#x != %#x\n",
+                        history->pcAddr,
+                        threadInfo[tid].pathHist.rbegin()->pcAddr);
+            }
 
-void
-SimpleIndirectPredictor::recordTarget(ThreadID tid, InstSeqNum sn,
-                      const PCStateBase& target, IndirectHistory * &history)
-{
-    // Should have just squashed so this branch should be the oldest
-    // and it should be predicted as indirect.
-    assert(!threadInfo[tid].pathHist.empty());
-    assert(history->was_indirect);
+            DPRINTF(Indirect, "Record Target seq:%d, PC:%#x, TGT:%#x, "
+                              "ghr:%#x, path sz:%#x, (set:%x, tag:%x)\n",
+                    sn, history->pcAddr, target.instAddr(), history->ghr,
+                    threadInfo[tid].pathHist.size(),
+                    history->set_index, history->tag);
 
-    if (threadInfo[tid].pathHist.rbegin()->pcAddr != history->pcAddr) {
-        DPRINTF(Indirect, "History seems to be corrupted. %#x != %#x\n",
-                    history->pcAddr,
-                    threadInfo[tid].pathHist.rbegin()->pcAddr);
-    }
+            assert(history->set_index < numSets);
+            stats.targetRecords++;
 
-    DPRINTF(Indirect, "Record Target seq:%d, PC:%#x, TGT:%#x, "
-                      "ghr:%#x, (set:%x, tag:%x)\n",
-                sn, history->pcAddr, target.instAddr(), history->ghr,
-                history->set_index, history->tag);
+            // Update the target cache
+            auto &iset = targetCache[history->set_index];
+            for (auto way = iset.begin(); way != iset.end(); ++way)
+            {
+                if (way->tag == history->tag)
+                {
+                    DPRINTF(Indirect,
+                            "Updating Target (seq: %d br:%x set:%d target:%s)\n",
+                            sn, history->pcAddr, history->set_index, target);
+                    set(way->target, target);
+                    return;
+                }
+            }
 
-    assert(history->set_index < numSets);
-    stats.targetRecords++;
-
-    // Update the target cache
-    auto &iset = targetCache[history->set_index];
-    for (auto way = iset.begin(); way != iset.end(); ++way) {
-        if (way->tag == history->tag) {
-            DPRINTF(Indirect,
-                    "Updating Target (seq: %d br:%x set:%d target:%s)\n",
+            DPRINTF(Indirect, "Allocating Target (seq: %d br:%x set:%d target:%s)\n",
                     sn, history->pcAddr, history->set_index, target);
-            set(way->target, target);
-            return;
+
+            // Did not find entry, random replacement
+            auto &way = iset[rand() % numWays];
+            way.tag = history->tag;
+            set(way.target, target);
         }
-    }
 
-    DPRINTF(Indirect, "Allocating Target (seq: %d br:%x set:%d target:%s)\n",
-            sn, history->pcAddr, history->set_index, target);
-
-    // Did not find entry, random replacement
-    auto &way = iset[rand() % numWays];
-    way.tag = history->tag;
-    set(way.target, target);
-}
-
-
-
-
-inline Addr
-SimpleIndirectPredictor::getSetIndex(Addr br_addr, ThreadID tid)
-{
-    Addr hash = br_addr >> instShift;
-    if (hashGHR) {
-        hash ^= threadInfo[tid].ghr;
-    }
-    if (hashTargets) {
-        unsigned hash_shift = floorLog2(numSets) / pathLength;
-        for (int i = threadInfo[tid].pathHist.size()-1, p = 0;
-             i >= 0 && p < pathLength; i--, p++) {
-            hash ^= (threadInfo[tid].pathHist[i].targetAddr >>
-                     (instShift + p*hash_shift));
+        void
+        SimpleIndirectPredictor::genIndirectInfo(ThreadID tid, void *&iHistory)
+        {
+            // Record the GHR as it was before this prediction
+            // It will be used to recover the history in case this prediction is
+            // wrong or belongs to bad path
+            ThreadInfo &ti = threadInfo[tid];
+            IndirectHistory *history = new IndirectHistory;
+            history->ghr = ti.ghr;
+            history->pathHist = pathReg[tid].reg;
+            iHistory = static_cast<void *>(history);
         }
-    }
-    return hash & (numSets-1);
-}
 
-inline Addr
-SimpleIndirectPredictor::getTag(Addr br_addr)
-{
-    return (br_addr >> instShift) & ((0x1<<tagBits)-1);
-}
+        void
+        SimpleIndirectPredictor::updateDirectionInfo(ThreadID tid, bool taken,
+                                                     Addr pc, Addr target)
+        {
+            // Taken only history
+            if (takenHistory && taken)
+            {
+                // Use target and pc to build a 2bit target history
+                uint64_t targethash = (pc >> 2) ^ (target >> 3);
+                threadInfo[tid].ghr <<= 2;
+                threadInfo[tid].ghr |= (targethash & 3);
+                threadInfo[tid].ghr &= ghrMask;
+            }
+            // Direction history
+            if (!takenHistory)
+            {
+                threadInfo[tid].ghr <<= 1;
+                threadInfo[tid].ghr |= taken;
+                threadInfo[tid].ghr &= ghrMask;
+            }
+        }
 
+        inline Addr
+        SimpleIndirectPredictor::getSetIndex(Addr br_addr, ThreadID tid)
+        {
+            ThreadInfo &ti = threadInfo[tid];
 
-SimpleIndirectPredictor::IndirectStats::IndirectStats(
-                                        statistics::Group *parent)
-    : statistics::Group(parent),
-    ADD_STAT(lookups, statistics::units::Count::get(),
-             "Number of lookups"),
-    ADD_STAT(hits, statistics::units::Count::get(),
-             "Number of hits of a tag"),
-    ADD_STAT(misses, statistics::units::Count::get(),
-             "Number of misses"),
-    ADD_STAT(targetRecords, statistics::units::Count::get(),
-             "Number of targets that where recorded/installed in the cache"),
-    ADD_STAT(indirectRecords, statistics::units::Count::get(),
-             "Number of indirect branches/calls recorded in the"
-             " indirect hist"),
-    ADD_STAT(speculativeOverflows, statistics::units::Count::get(),
-             "Number of times more than the allowed capacity for speculative "
-             "branches/calls where in flight and destroy the path history")
-{
-}
+            Addr hash = br_addr >> instShift;
+            if (hashGHR)
+            {
+                hash ^= ti.ghr;
+            }
+            if (hashTargets)
+            {
+                unsigned hash_shift = floorLog2(numSets) / pathLength;
+                Addr target_hash = 0;
+                for (int i = ti.pathHist.size() - 1, p = 0;
+                     i >= 0 && p < pathLength; i--, p++)
+                {
+                    hash ^= (ti.pathHist[i].targetAddr >>
+                             (instShift + p * hash_shift));
+                }
+                DPRINTF(Indirect, "TGT Hash:%#x, Hash%#x, Hash2:%#x\n",
+                        target_hash, hash, target_hash ^ hash);
+            }
+            return hash & (numSets - 1);
+        }
 
-} // namespace branch_prediction
+        inline Addr
+        SimpleIndirectPredictor::getTag(Addr br_addr)
+        {
+            return (br_addr >> instShift) & ((0x1 << tagBits) - 1);
+        }
+
+        SimpleIndirectPredictor::IndirectStats::IndirectStats(
+            statistics::Group *parent)
+            : statistics::Group(parent),
+              ADD_STAT(lookups, statistics::units::Count::get(),
+                       "Number of lookups"),
+              ADD_STAT(hits, statistics::units::Count::get(),
+                       "Number of hits of a tag"),
+              ADD_STAT(misses, statistics::units::Count::get(),
+                       "Number of misses"),
+              ADD_STAT(targetRecords, statistics::units::Count::get(),
+                       "Number of targets that where recorded/installed in the cache"),
+              ADD_STAT(indirectRecords, statistics::units::Count::get(),
+                       "Number of indirect branches/calls recorded in the"
+                       " indirect hist"),
+              ADD_STAT(speculativeOverflows, statistics::units::Count::get(),
+                       "Number of times more than the allowed capacity for speculative "
+                       "branches/calls where in flight and destroy the path history")
+        {
+        }
+
+    } // namespace branch_prediction
 } // namespace gem5

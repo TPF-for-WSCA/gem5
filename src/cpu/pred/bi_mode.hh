@@ -52,84 +52,84 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
-
-/**
- * Implements a bi-mode branch predictor. The bi-mode predictor is a two-level
- * branch predictor that has three seprate history arrays: a taken array, a
- * not-taken array, and a choice array. The taken/not-taken arrays are indexed
- * by a hash of the PC and the global history. The choice array is indexed by
- * the PC only. Because the taken/not-taken arrays use the same index, they must
- * be the same size.
- *
- * The bi-mode branch predictor aims to eliminate the destructive aliasing that
- * occurs when two branches of opposite biases share the same global history
- * pattern. By separating the predictors into taken/not-taken arrays, and using
- * the branch's PC to choose between the two, destructive aliasing is reduced.
- */
-
-class BiModeBP : public BPredUnit
-{
-  public:
-    BiModeBP(const BiModeBPParams &params);
-    bool lookup(ThreadID tid, Addr pc, void * &bp_history) override;
-    void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
-                         Addr target,  void * &bp_history) override;
-    void squash(ThreadID tid, void * &bp_history) override;
-    void update(ThreadID tid, Addr pc, bool taken,
-                void * &bp_history, bool squashed,
-                const StaticInstPtr & inst, Addr target) override;
-
-  private:
-    void updateGlobalHistReg(ThreadID tid, bool taken);
-    void uncondBranch(ThreadID tid, Addr pc, void * &bp_history);
-
-    struct BPHistory
+    namespace branch_prediction
     {
-        unsigned globalHistoryReg;
-        // was the taken array's prediction used?
-        // true: takenPred used
-        // false: notPred used
-        bool takenUsed;
-        // prediction of the taken array
-        // true: predict taken
-        // false: predict not-taken
-        bool takenPred;
-        // prediction of the not-taken array
-        // true: predict taken
-        // false: predict not-taken
-        bool notTakenPred;
-        // the final taken/not-taken prediction
-        // true: predict taken
-        // false: predict not-taken
-        bool finalPred;
-    };
 
-    std::vector<unsigned> globalHistoryReg;
-    unsigned globalHistoryBits;
-    unsigned historyRegisterMask;
+        /**
+         * Implements a bi-mode branch predictor. The bi-mode predictor is a two-level
+         * branch predictor that has three seprate history arrays: a taken array, a
+         * not-taken array, and a choice array. The taken/not-taken arrays are indexed
+         * by a hash of the PC and the global history. The choice array is indexed by
+         * the PC only. Because the taken/not-taken arrays use the same index, they must
+         * be the same size.
+         *
+         * The bi-mode branch predictor aims to eliminate the destructive aliasing that
+         * occurs when two branches of opposite biases share the same global history
+         * pattern. By separating the predictors into taken/not-taken arrays, and using
+         * the branch's PC to choose between the two, destructive aliasing is reduced.
+         */
 
-    unsigned choicePredictorSize;
-    unsigned choiceCtrBits;
-    unsigned choiceHistoryMask;
-    unsigned globalPredictorSize;
-    unsigned globalCtrBits;
-    unsigned globalHistoryMask;
+        class BiModeBP : public BPredUnit
+        {
+        public:
+            BiModeBP(const BiModeBPParams &params);
+            bool lookup(ThreadID tid, Addr pc, void *&bpHistory) override;
+            void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
+                                 Addr target, void *&bpHistory) override;
+            void squash(ThreadID tid, void *&bpHistory) override;
+            void update(ThreadID tid, Addr pc, bool taken,
+                        void *&bpHistory, bool squashed,
+                        const StaticInstPtr &inst, Addr corrTarget) override;
 
-    // choice predictors
-    std::vector<SatCounter8> choiceCounters;
-    // taken direction predictors
-    std::vector<SatCounter8> takenCounters;
-    // not-taken direction predictors
-    std::vector<SatCounter8> notTakenCounters;
+        private:
+            void updateGlobalHistReg(ThreadID tid, bool taken);
+            void uncondBranch(ThreadID tid, Addr pc, void *&bpHistory);
 
-    unsigned choiceThreshold;
-    unsigned takenThreshold;
-    unsigned notTakenThreshold;
-};
+            struct BPHistory
+            {
+                unsigned globalHistoryReg;
+                // was the taken array's prediction used?
+                // true: takenPred used
+                // false: notPred used
+                bool takenUsed;
+                // prediction of the taken array
+                // true: predict taken
+                // false: predict not-taken
+                bool takenPred;
+                // prediction of the not-taken array
+                // true: predict taken
+                // false: predict not-taken
+                bool notTakenPred;
+                // the final taken/not-taken prediction
+                // true: predict taken
+                // false: predict not-taken
+                bool finalPred;
+            };
 
-} // namespace branch_prediction
+            std::vector<unsigned> globalHistoryReg;
+            unsigned globalHistoryBits;
+            unsigned historyRegisterMask;
+
+            unsigned choicePredictorSize;
+            unsigned choiceCtrBits;
+            unsigned choiceHistoryMask;
+            unsigned globalPredictorSize;
+            unsigned globalCtrBits;
+            unsigned globalHistoryMask;
+
+            // choice predictors
+            std::vector<SatCounter8> choiceCounters;
+            // taken direction predictors
+            std::vector<SatCounter8> takenCounters;
+            // not-taken direction predictors
+            std::vector<SatCounter8> notTakenCounters;
+
+            unsigned choiceThreshold;
+            unsigned takenThreshold;
+            unsigned notTakenThreshold;
+        };
+
+    } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_BI_MODE_PRED_HH__

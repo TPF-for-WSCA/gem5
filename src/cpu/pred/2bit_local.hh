@@ -52,66 +52,68 @@
 namespace gem5
 {
 
-namespace branch_prediction
-{
+  namespace branch_prediction
+  {
 
-/**
- * Implements a local predictor that uses the PC to index into a table of
- * counters.  Note that any time a pointer to the bp_history is given, it
- * should be NULL using this predictor because it does not have any branch
- * predictor state that needs to be recorded or updated; the update can be
- * determined solely by the branch being taken or not taken.
- */
-class LocalBP : public BPredUnit
-{
-  public:
     /**
-     * Default branch predictor constructor.
+     * Implements a local predictor that uses the PC to index into a table of
+     * counters.  Note that any time a pointer to the bpHistory is given, it
+     * should be NULL using this predictor because it does not have any branch
+     * predictor state that needs to be recorded or updated; the update can be
+     * determined solely by the branch being taken or not taken.
      */
-    LocalBP(const LocalBPParams &params);
+    class LocalBP : public BPredUnit
+    {
+    public:
+      /**
+       * Default branch predictor constructor.
+       */
+      LocalBP(const LocalBPParams &params);
 
-    // Overriding interface functions
-    bool lookup(ThreadID tid, Addr pc, void * &bp_history) override;
+      // Overriding interface functions
+      bool lookup(ThreadID tid, Addr pc, void *&bpHistory) override;
 
-    void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
-                         Addr target,  void * &bp_history) override;
+      void updateHistories(ThreadID tid, Addr pc, bool uncond, bool taken,
+                           Addr target, void *&bpHistory) override;
 
-    void update(ThreadID tid, Addr pc, bool taken,
-                void * &bp_history, bool squashed,
-                const StaticInstPtr & inst, Addr target) override;
+      void update(ThreadID tid, Addr pc, bool taken,
+                  void *&bpHistory, bool squashed,
+                  const StaticInstPtr &inst, Addr corrTarget) override;
 
-    void squash(ThreadID tid, void * &bp_history) override
-    { assert(bp_history == NULL); }
+      void squash(ThreadID tid, void *&bpHistory) override
+      {
+        assert(bpHistory == NULL);
+      }
 
-  private:
-    /**
-     *  Returns the taken/not taken prediction given the value of the
-     *  counter.
-     *  @param count The value of the counter.
-     *  @return The prediction based on the counter value.
-     */
-    inline bool getPrediction(uint8_t &count);
+    private:
+      /**
+       *  Returns the taken/not taken prediction given the value of the
+       *  counter.
+       *  @param count The value of the counter.
+       *  @return The prediction based on the counter value.
+       */
+      inline bool getPrediction(uint8_t &count);
 
-    /** Calculates the local index based on the PC. */
-    inline unsigned getLocalIndex(Addr &PC);
+      /** Calculates the local index based on the PC. */
+      inline unsigned getLocalIndex(Addr &PC);
 
-    /** Size of the local predictor. */
-    const unsigned localPredictorSize;
+      /** Size of the local predictor. */
+      const unsigned localPredictorSize;
 
-    /** Number of bits of the local predictor's counters. */
-    const unsigned localCtrBits;
+      /** Number of bits of the local predictor's counters. */
+      const unsigned localCtrBits;
 
-    /** Number of sets. */
-    const unsigned localPredictorSets;
+      /** Number of sets. */
+      const unsigned localPredictorSets;
 
-    /** Array of counters that make up the local predictor. */
-    std::vector<SatCounter8> localCtrs;
+      /** Array of counters that make up the local predictor. */
+      std::vector<SatCounter8> localCtrs;
 
-    /** Mask to get index bits. */
-    const unsigned indexMask;
-};
+      /** Mask to get index bits. */
+      const unsigned indexMask;
+    };
 
-} // namespace branch_prediction
+  } // namespace branch_prediction
 } // namespace gem5
 
 #endif // __CPU_PRED_2BIT_LOCAL_PRED_HH__
